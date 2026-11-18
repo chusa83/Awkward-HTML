@@ -1,7 +1,7 @@
 //! Local HTTP server.
 //!
 //! - `/__dw/...`      the editor UI and its JSON API (API needs the session token)
-//! - everything else  the site itself, served from disk or from unsaved drafts.
+//! - everything else  the open site, served from disk or from unsaved drafts.
 //!   HTML pages are "instrumented" (each element tagged with `data-dw`) so the
 //!   design view can map rendered nodes back to source ranges.
 //!
@@ -9,22 +9,32 @@
 //! and the design view iframe is same-origin with the editor, which lets the
 //! editor read and highlight the page DOM directly.
 
-use crate::html;
+use crate::{css, html};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tiny_http::{Header, Method, Request, Response, Server};
 
 pub struct App {
-    pub root: PathBuf,
+    pub root: Option<PathBuf>,
     pub token: String,
     /// Unsaved editor buffers, keyed by site-relative path ("css/site.css").
     drafts: HashMap<String, String>,
 }
 
 impl App {
-    pub fn new(root: PathBuf, token: String) -> Self {
-        App { root, token, drafts: HashMap::new() }
+    pub fn new(root: Option<PathBuf>, token: String) -> Self {
+        let mut app = App { root: None, token, drafts: HashMap::new() };
+        if let Some(r) = root {
+            app.open_site(r);
+        }
+        app
+    }
+
+    fn open_site(&mut self, root: PathBuf) {
+        remember_recent(&root);
+        self.root = Some(root);
+        self.drafts.clear();
     }
 }
 
@@ -69,27 +79,49 @@ fn handle(app: &mut App, req: &mut Request) -> Resp {
 }
 
 fn api(app: &mut App, name: &str, body: &Value) -> Result<Value, String> {
-    let path = body["path"].as_str().unwrap_or("").trim_start_matches('/').to_string();
+    // Calls that work without an open site.
     match name {
-        "info" => Ok(json!({
-            "root": app.root.display().to_string(),
-            "name": app.root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
-        })),
+        "info" => {
+            return Ok(json!({
+                "root": app.root.as_ref().map(|r| r.display().to_string()),
+                "name": app.root.as_ref().and_then(|r| r.file_name()).map(|n| n.to_string_lossy().to_string()),
+                "recent": load_recent(),
+                "sep": std::path::MAIN_SEPARATOR.to_string(),
+            }));
+        }
+        "browse" => return browse(body["path"].as_str().unwrap_or("")),
+        "mkdir_abs" => {
+            let parent = PathBuf::from(body["parent"].as_str().ok_or("missing parent")?);
+            let name = valid_name(body["name"].as_str().unwrap_or(""))?;
+            let p = parent.join(name);
+            std::fs::create_dir(&p).map_err(|e| e.to_string())?;
+            return Ok(json!({ "path": p.display().to_string() }));
+        }
+        "open_site" => {
+            let p = PathBuf::from(body["path"].as_str().ok_or("missing path")?);
+            let p = p.canonicalize().map_err(|e| e.to_string())?;
+            if !p.is_dir() {
+                return Err("not a folder".into());
+            }
+            app.open_site(p);
+            return Ok(json!({}));
+        }
+        _ => {}
+    }
+
+    let root = app.root.clone().ok_or("no site is open")?;
+    let path = clean_rel(body["path"].as_str().unwrap_or(""));
+    match name {
         "files" => {
             let mut files = Vec::new();
-            list_files(&app.root, &app.root, &mut files);
+            let mut dirs = Vec::new();
+            list_files(&root, &root, &mut files, &mut dirs);
             files.sort();
-            Ok(json!({ "files": files, "dirty": app.drafts.keys().collect::<Vec<_>>() }))
+            dirs.sort();
+            Ok(json!({ "files": files, "dirs": dirs, "dirty": app.drafts.keys().collect::<Vec<_>>() }))
         }
         "open" => {
-            let content = match app.drafts.get(&path) {
-                Some(d) => d.clone(),
-                None => {
-                    let full = resolve(&app.root, &path).ok_or("bad path")?;
-                    let bytes = std::fs::read(&full).map_err(|e| e.to_string())?;
-                    String::from_utf8(bytes).map_err(|_| "not a text file")?
-                }
-            };
+            let content = read_source(app, &root, &path)?;
             Ok(with_elements(&path, &content, json!({ "content": content })))
         }
         "draft" => {
@@ -99,10 +131,19 @@ fn api(app: &mut App, name: &str, body: &Value) -> Result<Value, String> {
         }
         "save" => {
             let content = body["content"].as_str().ok_or("missing content")?;
-            let full = resolve(&app.root, &path).ok_or("bad path")?;
+            let full = resolve(&root, &path).ok_or("bad path")?;
             std::fs::write(&full, content).map_err(|e| e.to_string())?;
             app.drafts.remove(&path);
             Ok(json!({}))
+        }
+        "save_all" => {
+            let mut saved = Vec::new();
+            for (p, content) in app.drafts.drain() {
+                let full = resolve(&root, &p).ok_or("bad path")?;
+                std::fs::write(&full, content).map_err(|e| format!("{p}: {e}"))?;
+                saved.push(p);
+            }
+            Ok(json!({ "saved": saved }))
         }
         "revert" => {
             app.drafts.remove(&path);
@@ -133,8 +174,113 @@ fn api(app: &mut App, name: &str, body: &Value) -> Result<Value, String> {
             app.drafts.insert(path.clone(), out.clone());
             Ok(with_elements(&path, &out, json!({ "content": out, "select": select })))
         }
+
+        // --- file management ---------------------------------------------
+        "create" => {
+            let full = resolve(&root, &path).filter(|_| !path.is_empty()).ok_or("bad path")?;
+            if full.exists() {
+                return Err("a file with that name already exists".into());
+            }
+            if let Some(parent) = full.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            std::fs::write(&full, body["content"].as_str().unwrap_or("")).map_err(|e| e.to_string())?;
+            Ok(json!({}))
+        }
+        "mkdir" => {
+            let full = resolve(&root, &path).filter(|_| !path.is_empty()).ok_or("bad path")?;
+            std::fs::create_dir_all(&full).map_err(|e| e.to_string())?;
+            Ok(json!({}))
+        }
+        "rename" => {
+            let to = clean_rel(body["to"].as_str().unwrap_or(""));
+            let from_full = resolve(&root, &path).filter(|_| !path.is_empty()).ok_or("bad path")?;
+            let to_full = resolve(&root, &to).filter(|_| !to.is_empty()).ok_or("bad target path")?;
+            if to_full.exists() {
+                return Err("target already exists".into());
+            }
+            if let Some(parent) = to_full.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            std::fs::rename(&from_full, &to_full).map_err(|e| e.to_string())?;
+            // Move unsaved drafts along with the file or folder.
+            let prefix = format!("{path}/");
+            let moved: Vec<String> =
+                app.drafts.keys().filter(|k| **k == path || k.starts_with(&prefix)).cloned().collect();
+            for k in moved {
+                let v = app.drafts.remove(&k).unwrap_or_default();
+                app.drafts.insert(format!("{to}{}", &k[path.len()..]), v);
+            }
+            Ok(json!({}))
+        }
+        "delete" => {
+            // Files and empty folders only: deleting a whole folder from a
+            // single click is too easy to get wrong.
+            let full = resolve(&root, &path).filter(|_| !path.is_empty()).ok_or("bad path")?;
+            if full.is_dir() {
+                std::fs::remove_dir(&full).map_err(|_| "only empty folders can be deleted here".to_string())?;
+            } else {
+                std::fs::remove_file(&full).map_err(|e| e.to_string())?;
+            }
+            app.drafts.remove(&path);
+            Ok(json!({}))
+        }
+
+        // --- CSS designer -------------------------------------------------
+        "css" => {
+            let src = read_source(app, &root, &path)?;
+            let (css_src, _, _) = css_slice(&src, body)?;
+            Ok(json!({ "rules": css::parse(css_src) }))
+        }
+        "css_edit" => {
+            let src = read_source(app, &root, &path)?;
+            let (css_src, a, b) = css_slice(&src, body)?;
+            let decls: Vec<(String, String)> =
+                serde_json::from_value(body["decls"].clone()).map_err(|e| e.to_string())?;
+            let (new_css, rule) = if let Some(sel) = body["selector"].as_str() {
+                let (indent, tail) = if body["element"].is_u64() {
+                    // Inside <style>: indent like the tag, keep </style> on its own line.
+                    let style_indent = css::line_indent(&src, src[..a].rfind('<').unwrap_or(0));
+                    (format!("{style_indent}  "), style_indent)
+                } else {
+                    (String::new(), String::new())
+                };
+                css::add_rule(css_src, sel, &decls, &indent, &tail)?
+            } else {
+                let idx = body["rule"].as_u64().ok_or("missing rule")? as usize;
+                (css::set_decls(css_src, idx, &decls)?, idx)
+            };
+            let out = format!("{}{}{}", &src[..a], new_css, &src[b..]);
+            app.drafts.insert(path.clone(), out.clone());
+            Ok(with_elements(&path, &out, json!({ "content": out, "rule": rule })))
+        }
         _ => Err(format!("unknown api {name}")),
     }
+}
+
+/// The CSS text to work on: the whole file, or the content of a `<style>`
+/// element when `body.element` is given. Returns (css, start, end) byte offsets.
+fn css_slice<'a>(src: &'a str, body: &Value) -> Result<(&'a str, usize, usize), String> {
+    match body["element"].as_u64() {
+        None => Ok((src, 0, src.len())),
+        Some(i) => {
+            let els = html::parse(src);
+            let e = els.get(i as usize).ok_or("element not found")?;
+            if e.tag != "style" {
+                return Err("element is not <style>".into());
+            }
+            Ok((&src[e.open_end..e.close_start], e.open_end, e.close_start))
+        }
+    }
+}
+
+fn read_source(app: &App, root: &Path, path: &str) -> Result<String, String> {
+    if let Some(d) = app.drafts.get(path) {
+        return Ok(d.clone());
+    }
+    let full = resolve(root, path).ok_or("bad path")?;
+    let bytes = std::fs::read(&full).map_err(|e| e.to_string())?;
+    String::from_utf8(bytes).map_err(|_| "not a text file".to_string())
 }
 
 fn with_elements(path: &str, content: &str, mut v: Value) -> Value {
@@ -146,8 +292,11 @@ fn with_elements(path: &str, content: &str, mut v: Value) -> Value {
 }
 
 fn serve_site(app: &App, url_path: &str) -> Resp {
+    let Some(root) = &app.root else {
+        return text(404, "no site is open");
+    };
     let mut rel = url_path.trim_start_matches('/').to_string();
-    let Some(mut full) = resolve(&app.root, &rel) else {
+    let Some(mut full) = resolve(root, &rel) else {
         return text(400, "bad path");
     };
     if full.is_dir() {
@@ -175,6 +324,10 @@ fn serve_site(app: &App, url_path: &str) -> Resp {
         .with_header(header("Cache-Control", "no-store"))
 }
 
+fn clean_rel(p: &str) -> String {
+    p.trim().trim_matches('/').replace('\\', "/")
+}
+
 /// Site-relative path -> absolute path, refusing anything that escapes the root.
 fn resolve(root: &Path, rel: &str) -> Option<PathBuf> {
     let mut p = root.to_path_buf();
@@ -190,10 +343,18 @@ fn resolve(root: &Path, rel: &str) -> Option<PathBuf> {
     Some(p)
 }
 
-fn list_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
+fn valid_name(name: &str) -> Result<&str, String> {
+    let n = name.trim();
+    if n.is_empty() || n == "." || n == ".." || n.contains(['/', '\\', ':']) {
+        return Err("invalid name".into());
+    }
+    Ok(n)
+}
+
+fn list_files(root: &Path, dir: &Path, files: &mut Vec<String>, dirs: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for e in entries.flatten() {
-        if out.len() > 5000 {
+        if files.len() > 5000 {
             return;
         }
         let name = e.file_name().to_string_lossy().to_string();
@@ -201,13 +362,92 @@ fn list_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
             continue;
         }
         let p = e.path();
+        let Ok(rel) = p.strip_prefix(root) else { continue };
+        let rel = rel.to_string_lossy().replace('\\', "/");
         if p.is_dir() {
-            list_files(root, &p, out);
-        } else if let Ok(rel) = p.strip_prefix(root) {
-            out.push(rel.to_string_lossy().replace('\\', "/"));
+            dirs.push(rel);
+            list_files(root, &p, files, dirs);
+        } else {
+            files.push(rel);
         }
     }
 }
+
+// --- folder browser and recent sites ----------------------------------------
+
+fn home_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+}
+
+fn browse(path: &str) -> Result<Value, String> {
+    // On Windows, an empty path past the drive root lists the drives.
+    if cfg!(windows) && path == "::drives" {
+        let drives: Vec<String> = (b'A'..=b'Z')
+            .map(|c| format!("{}:\\", c as char))
+            .filter(|d| Path::new(d).exists())
+            .collect();
+        return Ok(json!({ "path": "", "parent": null, "dirs": drives, "absolute": true }));
+    }
+    let dir = if path.is_empty() { home_dir() } else { PathBuf::from(path) };
+    let dir = dir.canonicalize().map_err(|e| e.to_string())?;
+    let mut dirs: Vec<String> = std::fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| !n.starts_with('.'))
+        .collect();
+    dirs.sort_by_key(|d| d.to_lowercase());
+    let parent = match dir.parent() {
+        Some(p) => Some(p.display().to_string()),
+        None if cfg!(windows) => Some("::drives".to_string()),
+        None => None,
+    };
+    let display = dir.display().to_string();
+    // canonicalize() on Windows returns \\?\C:\..., which is noise for people.
+    let display = display.strip_prefix(r"\\?\").unwrap_or(&display).to_string();
+    Ok(json!({ "path": display, "parent": parent, "dirs": dirs, "absolute": false }))
+}
+
+fn config_dir() -> PathBuf {
+    if cfg!(windows) {
+        std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(home_dir).join("webloom")
+    } else if cfg!(target_os = "macos") {
+        home_dir().join("Library/Application Support/webloom")
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home_dir().join(".config"))
+            .join("webloom")
+    }
+}
+
+fn load_recent() -> Vec<String> {
+    std::fs::read_to_string(config_dir().join("recent.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| Path::new(p).is_dir())
+        .collect()
+}
+
+fn remember_recent(root: &Path) {
+    let p = root.display().to_string();
+    let p = p.strip_prefix(r"\\?\").unwrap_or(&p).to_string();
+    let mut list = load_recent();
+    list.retain(|x| *x != p);
+    list.insert(0, p);
+    list.truncate(10);
+    let dir = config_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(dir.join("recent.json"), json!(list).to_string());
+}
+
+// --- misc -------------------------------------------------------------------
 
 fn is_html(path: &str) -> bool {
     let p = path.to_ascii_lowercase();
@@ -277,8 +517,6 @@ fn asset(name: &str) -> Resp {
         None => text(404, "not found"),
     }
 }
-
-// --- helpers --------------------------------------------------------------
 
 fn header(k: &str, v: &str) -> Header {
     Header::from_bytes(k.as_bytes(), v.as_bytes()).expect("valid header")

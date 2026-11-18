@@ -5,7 +5,14 @@
 //! mode, so it looks like a desktop window.
 //!
 //! Usage: webloom [SITE_FOLDER] [--port N] [--no-browser]
+//!
+//! Without SITE_FOLDER the editor opens on its start screen, where a site
+//! folder can be picked. The program exits when the editor window is closed.
 
+// Release builds on Windows don't open a console window next to the editor.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
+mod css;
 mod html;
 mod server;
 
@@ -29,14 +36,13 @@ fn main() {
             _ => site = Some(PathBuf::from(a)),
         }
     }
-    let site = site.unwrap_or_else(|| std::env::current_dir().expect("current dir"));
-    let root = match site.canonicalize() {
+    let root = site.map(|site| match site.canonicalize() {
         Ok(p) if p.is_dir() => p,
         _ => {
             eprintln!("Not a folder: {}", site.display());
             std::process::exit(1);
         }
-    };
+    });
 
     let server = tiny_http::Server::http(("127.0.0.1", port)).unwrap_or_else(|e| {
         eprintln!("Could not start server: {e}");
@@ -46,15 +52,50 @@ fn main() {
     let token = random_token();
     let url = format!("http://127.0.0.1:{port}/__dw/#{token}");
 
-    println!("Site:   {}", root.display());
+    if let Some(r) = &root {
+        println!("Site:   {}", r.display());
+    }
     println!("Editor: {url}");
 
-    if open_browser {
-        if let Err(e) = launch_browser(&url) {
-            eprintln!("{e}\nOpen the editor URL above in Chrome, Chromium or Edge.");
+    let app = server::App::new(root, token);
+    if !open_browser {
+        server::run(server, app);
+        return;
+    }
+    match launch_browser(&url) {
+        Ok(mut child) => {
+            let started = std::time::Instant::now();
+            std::thread::spawn(move || server::run(server, app));
+            let _ = child.wait();
+            // If the browser handed the window over to an instance that was
+            // already running (it exits right away), we can't tell when the
+            // window closes, so keep serving until the process is stopped.
+            if started.elapsed() < std::time::Duration::from_secs(5) {
+                loop {
+                    std::thread::park();
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            open_default_browser(&url);
+            server::run(server, app);
         }
     }
-    server::run(server, server::App::new(root, token));
+}
+
+/// Fallback when no Chromium-based browser is found.
+fn open_default_browser(url: &str) {
+    let r = if cfg!(windows) {
+        Command::new("cmd").args(["/C", "start", "", url]).spawn()
+    } else if cfg!(target_os = "macos") {
+        Command::new("open").arg(url).spawn()
+    } else {
+        Command::new("xdg-open").arg(url).spawn()
+    };
+    if r.is_err() {
+        eprintln!("Open {url} in Chrome, Chromium or Edge.");
+    }
 }
 
 /// Token that the editor must send with API calls, so other local pages
@@ -78,7 +119,7 @@ fn random_token() -> String {
     s
 }
 
-fn launch_browser(url: &str) -> Result<(), String> {
+fn launch_browser(url: &str) -> Result<std::process::Child, String> {
     let exe = find_browser().ok_or("No Chromium-based browser found (set WEBLOOM_BROWSER).")?;
     // Separate profile so the window opens even if the browser is already running,
     // and so the editor never touches the user's normal browsing profile.
@@ -90,7 +131,6 @@ fn launch_browser(url: &str) -> Result<(), String> {
         .arg("--no-default-browser-check")
         .arg("--window-size=1400,900")
         .spawn()
-        .map(|_| ())
         .map_err(|e| format!("Could not start {}: {e}", exe.display()))
 }
 

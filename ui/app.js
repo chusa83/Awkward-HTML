@@ -11,7 +11,12 @@ const TOKEN = location.hash.slice(1);
 const $ = (sel) => document.querySelector(sel);
 
 const state = {
+  info: null,         // result of api('info')
   files: [],
+  dirs: [],
+  collapsed: new Set(), // folders collapsed in the file tree
+  tab: 'props',       // inspector tab: props | css
+  cssShowAll: false,
   dirty: new Set(),   // paths with unsaved changes
   filePath: null,     // file shown in the code editor
   pagePath: null,     // HTML page shown in the design view
@@ -45,7 +50,10 @@ function status(msg, isError = false) {
 
 function fail(err) {
   console.error(err);
-  status(String(err.message || err), true);
+  const msg = String(err.message || err);
+  // The status bar is hidden on the start screen and behind dialogs.
+  if (document.body.classList.contains('no-site') || !$('#folder-dialog').hidden) alert(msg);
+  else status(msg, true);
 }
 
 const isHtml = (p) => /\.html?$/i.test(p || '');
@@ -143,42 +151,55 @@ function elementAt(off) {
 async function loadFiles() {
   const res = await api('files');
   state.files = res.files;
+  state.dirs = res.dirs;
   state.dirty = new Set(res.dirty);
   renderTree();
 }
 
 function renderTree() {
   const root = { dirs: {}, files: [] };
-  for (const f of state.files) {
-    const parts = f.split('/');
+  const dirNode = (path) => {
     let node = root;
-    for (const d of parts.slice(0, -1)) node = node.dirs[d] ??= { dirs: {}, files: [] };
-    node.files.push(f);
-  }
-  const build = (node) => {
+    for (const d of path ? path.split('/') : []) node = node.dirs[d] ??= { dirs: {}, files: [] };
+    return node;
+  };
+  for (const d of state.dirs) dirNode(d);
+  for (const f of state.files) dirNode(folderOf(f)).files.push(f);
+
+  const build = (node, prefix) => {
     const frag = document.createDocumentFragment();
-    for (const name of Object.keys(node.dirs).sort()) {
-      const det = document.createElement('details');
-      det.open = true;
-      const sum = document.createElement('summary');
-      sum.textContent = name;
-      det.append(sum, build(node.dirs[name]));
+    for (const name of Object.keys(node.dirs).sort((a, b) => a.localeCompare(b))) {
+      const path = prefix ? prefix + '/' + name : name;
+      const det = el('details', { open: !state.collapsed.has(path) });
+      det.ontoggle = () => (det.open ? state.collapsed.delete(path) : state.collapsed.add(path));
+      const sum = el('summary', { title: path }, name);
+      sum.oncontextmenu = (ev) => showMenu(ev, [
+        ['New file here…', () => newFile(path)],
+        ['New folder here…', () => newFolder(path)],
+        ['Rename / move…', () => renamePath(path)],
+        ['Delete (empty folders only)', () => deletePath(path, true)],
+      ]);
+      det.append(sum, build(node.dirs[name], path));
       frag.append(det);
     }
     for (const f of node.files) {
-      const div = document.createElement('div');
-      div.className = 'file';
-      div.textContent = f.split('/').pop();
-      div.title = f;
+      const div = el('div', { className: 'file', title: f }, f.split('/').pop());
       div.dataset.path = f;
       div.classList.toggle('active', f === state.filePath);
       div.classList.toggle('dirty', state.dirty.has(f));
       div.onclick = () => openFile(f).catch(fail);
+      div.oncontextmenu = (ev) => showMenu(ev, [
+        ['Open', () => openFile(f)],
+        ['Rename / move…', () => renamePath(f)],
+        ['Delete…', () => deletePath(f, false)],
+        ['New file here…', () => newFile(folderOf(f))],
+        ['New folder here…', () => newFolder(folderOf(f))],
+      ]);
       frag.append(div);
     }
     return frag;
   };
-  $('#file-tree').replaceChildren(build(root));
+  $('#file-tree').replaceChildren(build(root, ''));
 }
 
 function markDirty(path, on) {
@@ -233,7 +254,11 @@ const frame = $('#design');
 
 function reloadDesign() {
   $('#design-empty').style.display = state.pagePath ? 'none' : '';
-  if (!state.pagePath) return;
+  if (!state.pagePath) {
+    frame.dataset.path = '';
+    frame.src = 'about:blank';
+    return;
+  }
   const doc = frame.contentDocument;
   const win = frame.contentWindow;
   // Keep scroll position across reloads of the same page.
@@ -287,6 +312,7 @@ frame.addEventListener('load', () => {
   doc.addEventListener('keydown', onDesignKey, true);
 
   if (state.sel != null && frame.dataset.path === state.filePath) highlightDesign(state.sel, false);
+  if (state.tab === 'css') renderCss();
 });
 
 async function selectFromDesign(idx) {
@@ -517,6 +543,7 @@ function row(name, input) {
 }
 
 function renderInspector() {
+  if (state.tab === 'css') renderCss();
   const box = $('#props');
   box.replaceChildren();
   const e = state.sel != null && state.elements ? state.elements[state.sel] : null;
@@ -673,12 +700,414 @@ function setSplit(dir) {
   try { localStorage.setItem('webloom.split', dir); } catch {}
 }
 
+
+function setTab(tab) {
+  state.tab = tab;
+  document.querySelectorAll('#inspector .tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  $('#props').hidden = tab !== 'props';
+  $('#css-designer').hidden = tab !== 'css';
+  if (tab === 'css') renderCss();
+  try { localStorage.setItem('webloom.tab', tab); } catch {}
+}
+
+// ---------------------------------------------------------------------------
+// CSS Designer: rules from the page's stylesheets that apply to the selection
+// ---------------------------------------------------------------------------
+
+const CSS_PROPS = [
+  'align-items', 'align-self', 'aspect-ratio', 'background', 'background-color', 'background-image',
+  'background-position', 'background-repeat', 'background-size', 'border', 'border-bottom', 'border-color',
+  'border-left', 'border-radius', 'border-right', 'border-top', 'border-width', 'bottom', 'box-shadow',
+  'box-sizing', 'color', 'column-gap', 'cursor', 'display', 'flex', 'flex-direction', 'flex-wrap', 'float',
+  'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'gap', 'grid-area', 'grid-column',
+  'grid-row', 'grid-template-areas', 'grid-template-columns', 'grid-template-rows', 'height', 'inset',
+  'justify-content', 'justify-items', 'left', 'letter-spacing', 'line-height', 'list-style', 'margin',
+  'margin-bottom', 'margin-left', 'margin-right', 'margin-top', 'max-height', 'max-width', 'min-height',
+  'min-width', 'object-fit', 'opacity', 'outline', 'overflow', 'padding', 'padding-bottom', 'padding-left',
+  'padding-right', 'padding-top', 'position', 'right', 'row-gap', 'text-align', 'text-decoration',
+  'text-shadow', 'text-transform', 'top', 'transform', 'transition', 'vertical-align', 'visibility',
+  'white-space', 'width', 'word-break', 'z-index',
+];
+let cssRun = 0;
+
+/** Stylesheets of the page in the design view, in document (cascade) order. */
+function pageStylesheets() {
+  const doc = frame.contentDocument;
+  if (!doc || !state.pagePath) return [];
+  // While a new page is loading, the frame still holds the previous one.
+  if (decodeURIComponent(doc.location.pathname).replace(/^\/+/, '') !== state.pagePath) return [];
+  const out = [];
+  for (const n of doc.querySelectorAll('link[rel~="stylesheet" i][href], style')) {
+    if (n.tagName === 'STYLE') {
+      if (n.dataset.dw == null) continue; // added by the editor itself
+      out.push({ path: state.pagePath, element: +n.dataset.dw, label: '<style> in ' + state.pagePath.split('/').pop() });
+      continue;
+    }
+    const url = new URL(n.getAttribute('href'), doc.baseURI);
+    if (url.origin !== location.origin) {
+      out.push({ external: true, label: url.href });
+      continue;
+    }
+    const path = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    out.push({ path, label: path });
+  }
+  return out;
+}
+
+/** 'match', 'state' (only with :hover, ::before…) or null. */
+function matchKind(node, selector) {
+  try { if (node.matches(selector)) return 'match'; } catch {}
+  const stateless = selector
+    .split(',')
+    .map((s) => s.replace(/::?(hover|focus|focus-within|focus-visible|active|visited|link|target|checked|before|after|first-line|first-letter|placeholder|marker|selection)\b/gi, '').trim())
+    .filter(Boolean)
+    .join(',');
+  if (stateless && stateless !== selector) {
+    try { if (node.matches(stateless)) return 'state'; } catch {}
+  }
+  return null;
+}
+
+function suggestSelector(e) {
+  const id = attr(e, 'id');
+  if (id) return '#' + id;
+  const cls = (attr(e, 'class') || '').trim().split(/\s+/)[0];
+  if (cls) return '.' + cls;
+  return e.tag;
+}
+
+async function renderCss() {
+  const box = $('#css-designer');
+  const run = ++cssRun;
+  if (!state.pagePath) {
+    box.replaceChildren(el('div', { className: 'muted' }, 'Open an HTML page to see its CSS.'));
+    return;
+  }
+  const node = state.filePath === state.pagePath ? designNode(state.sel) : null;
+  const sheets = [];
+  for (const s of pageStylesheets()) {
+    if (s.external) { sheets.push(s); continue; }
+    try {
+      const res = await api('css', { path: s.path, element: s.element });
+      sheets.push({ ...s, rules: res.rules });
+    } catch (err) {
+      sheets.push({ ...s, error: err.message });
+    }
+  }
+  if (run !== cssRun) return; // a newer render started meanwhile
+
+  const parts = [];
+  const toggle = el('input', { type: 'checkbox', checked: state.cssShowAll, style: 'width:auto' });
+  toggle.onchange = () => { state.cssShowAll = toggle.checked; renderCss(); };
+  parts.push(el('label', { className: 'check', style: 'padding:0 0 8px' }, toggle, 'Show all rules'));
+
+  const local = sheets.filter((s) => !s.external && !s.error);
+  if (local.length) {
+    const selInp = el('input', { value: node ? suggestSelector(state.elements[state.sel]) : '', placeholder: 'selector, e.g. .card h2', spellcheck: false });
+    const target = el('select', {}, ...local.map((s, i) => el('option', { value: String(i) }, s.label)));
+    const firstFile = local.findIndex((s) => s.element == null);
+    if (firstFile >= 0) target.value = String(firstFile);
+    const add = () => selInp.value.trim() && cssEdit(local[+target.value], { selector: selInp.value.trim(), decls: [] }).catch(fail);
+    selInp.addEventListener('keydown', (ev) => ev.key === 'Enter' && add());
+    parts.push(section('New rule', el('div', { className: 'new-rule' }, selInp, target, el('button', { onclick: add }, 'Add rule'))));
+  } else {
+    parts.push(el('div', { className: 'note' }, 'This page has no stylesheet. Add a <link rel="stylesheet"> or a <style> element first.'));
+  }
+
+  const cards = [];
+  for (const s of sheets) {
+    if (s.external) {
+      if (state.cssShowAll) cards.push(el('div', { className: 'note' }, 'External stylesheet, not editable: ' + s.label));
+      continue;
+    }
+    if (s.error) { cards.push(el('div', { className: 'note' }, s.label + ': ' + s.error)); continue; }
+    s.rules.forEach((r, i) => {
+      const kind = node ? matchKind(node, r.selector) : null;
+      if (state.cssShowAll || kind) cards.push(ruleCard(s, r, i, kind));
+    });
+  }
+  let title = 'Rules matching the selection, in source order';
+  if (state.cssShowAll) title = 'All rules';
+  else if (!node) cards.push(el('div', { className: 'muted' }, 'Select an element to see the rules that apply to it.'));
+  else if (!cards.length) cards.push(el('div', { className: 'muted' }, 'No stylesheet rules match this element.'));
+  parts.push(section(title, ...cards));
+  box.replaceChildren(...parts);
+}
+
+function ruleCard(sheet, rule, index, kind) {
+  let active = true;
+  const m = rule.media && rule.media.match(/^@media\s+(.*)$/i);
+  if (m && !m[1].includes('@')) {
+    try { active = frame.contentWindow.matchMedia(m[1]).matches; } catch {}
+  }
+  let src = sheet.label;
+  if (rule.media) src += ' · ' + rule.media;
+  if (kind === 'state') src += ' · applies only in a state (:hover, ::before…)';
+  if (!active) src += ' · not active at this width';
+  const head = el('div', { className: 'rule-head' }, el('div', { className: 'rule-sel' }, rule.selector), el('div', { className: 'rule-src' }, src));
+  const body = el('div', { className: 'rule-body' });
+  if (rule.nested) {
+    body.append(el('div', { className: 'note' }, 'Contains nested rules; edit it in the code view.'));
+    return el('div', { className: 'rule' }, head, body);
+  }
+  const save = () => {
+    const decls = [...body.querySelectorAll('.decl-row')]
+      .map((r) => [r.children[0].value.trim(), r.children[1].value.trim()])
+      .filter(([p, v]) => p && v);
+    cssEdit(sheet, { rule: index, decls }).catch(fail);
+  };
+  const declRow = (p, v, isNew) => {
+    const pi = el('input', { value: p, placeholder: 'property', spellcheck: false });
+    pi.setAttribute('list', 'css-props');
+    const vi = el('input', { value: v, placeholder: 'value', spellcheck: false });
+    const r = el('div', { className: 'decl-row' }, pi, vi);
+    if (isNew) {
+      r.append(el('button', { title: 'Add property', onclick: save }, '+'));
+      vi.addEventListener('keydown', (ev) => ev.key === 'Enter' && save());
+    } else {
+      r.append(el('button', { title: 'Remove property', onclick: () => { r.remove(); save(); } }, '×'));
+      pi.onchange = save;
+      vi.onchange = save;
+    }
+    return r;
+  };
+  body.append(...rule.decls.map(([p, v]) => declRow(p, v, false)), declRow('', '', true));
+  return el('div', { className: 'rule' + (active ? '' : ' inactive') }, head, body);
+}
+
+async function cssEdit(sheet, payload) {
+  await flushDraft();
+  const res = await api('css_edit', { path: sheet.path, element: sheet.element, ...payload });
+  markDirty(sheet.path, true);
+  if (sheet.path === state.filePath) {
+    setCode(res.content);
+    if (res.elements) state.elements = res.elements;
+  }
+  reloadDesign(); // the CSS tab re-renders when the page has reloaded
+  status('Updated ' + sheet.path + ' (unsaved)');
+}
+
+// ---------------------------------------------------------------------------
+// File management
+// ---------------------------------------------------------------------------
+
+const HTML_TEMPLATE = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Untitled</title>
+</head>
+<body>
+
+</body>
+</html>
+`;
+
+function folderOf(p) {
+  const i = p.lastIndexOf('/');
+  return i < 0 ? '' : p.slice(0, i);
+}
+const cleanPath = (p) => p.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+
+async function newFile(dir) {
+  const base = dir ?? (state.filePath ? folderOf(state.filePath) : '');
+  const input = prompt('New file (path inside the site, e.g. about/index.html):', base ? base + '/' : '');
+  const path = input && cleanPath(input);
+  if (!path || path.endsWith('/')) return;
+  const content = isHtml(path) ? HTML_TEMPLATE : '';
+  await api('create', { path, content });
+  await loadFiles();
+  await openFile(path);
+}
+
+async function newFolder(dir) {
+  const base = dir ?? (state.filePath ? folderOf(state.filePath) : '');
+  const input = prompt('New folder (path inside the site):', base ? base + '/' : '');
+  const path = input && cleanPath(input);
+  if (!path) return;
+  await api('mkdir', { path });
+  state.collapsed.delete(path);
+  await loadFiles();
+}
+
+async function renamePath(path) {
+  const input = prompt('Rename or move to (path inside the site):', path);
+  const to = input && cleanPath(input);
+  if (!to || to === path) return;
+  await flushDraft();
+  await api('rename', { path, to });
+  const move = (p) => (p === path || (p && p.startsWith(path + '/')) ? to + p.slice(path.length) : p);
+  state.filePath = move(state.filePath);
+  const oldPage = state.pagePath;
+  state.pagePath = move(state.pagePath);
+  state.dirty = new Set([...state.dirty].map(move));
+  if (state.filePath) $('#file-name').textContent = state.filePath;
+  await loadFiles();
+  if (state.pagePath !== oldPage) reloadDesign();
+  status('Renamed to ' + to + '. Links to the old name were not updated.');
+}
+
+async function deletePath(path, isDir) {
+  const what = isDir ? 'the empty folder ' : '';
+  if (!confirm('Delete ' + what + path + '? This cannot be undone.')) return;
+  await api('delete', { path });
+  state.dirty.delete(path);
+  const gone = (p) => p && (p === path || p.startsWith(path + '/'));
+  if (gone(state.filePath)) {
+    clearTimeout(state.draftTimer);
+    state.draftTimer = null;
+    state.filePath = null;
+    state.elements = null;
+    state.sel = null;
+    setCode('', { resetHistory: true });
+    $('#file-name').textContent = '';
+  }
+  if (gone(state.pagePath)) state.pagePath = null;
+  reloadDesign();
+  renderInspector();
+  renderTagSelector();
+  await loadFiles();
+}
+
+// --- context menu ---
+
+function showMenu(ev, items) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  const m = $('#context-menu');
+  m.replaceChildren(...items.map(([text, fn]) =>
+    el('div', { onclick: () => { hideMenu(); Promise.resolve().then(fn).catch(fail); } }, text)));
+  m.hidden = false;
+  const x = Math.min(ev.clientX, innerWidth - m.offsetWidth - 4);
+  const y = Math.min(ev.clientY, innerHeight - m.offsetHeight - 4);
+  m.style.left = x + 'px';
+  m.style.top = y + 'px';
+}
+
+function hideMenu() {
+  $('#context-menu').hidden = true;
+}
+
+// ---------------------------------------------------------------------------
+// Sites: start screen, folder dialog
+// ---------------------------------------------------------------------------
+
+async function loadSite() {
+  const info = await api('info');
+  state.info = info;
+  resetEditor();
+  document.body.classList.toggle('no-site', !info.root);
+  $('#welcome').hidden = !!info.root;
+  if (!info.root) {
+    $('#site-name').textContent = 'Webloom';
+    document.title = 'Webloom';
+    renderRecent(info.recent);
+    return;
+  }
+  $('#site-name').textContent = info.name;
+  $('#site-name').title = info.root;
+  document.title = info.name + ' — Webloom';
+  cm.refresh();
+  await loadFiles();
+  const first = state.files.find((f) => /^index\.html?$/i.test(f)) || state.files.find(isHtml);
+  if (first) await openFile(first);
+}
+
+function resetEditor() {
+  clearTimeout(state.draftTimer);
+  Object.assign(state, { draftTimer: null, draftPending: null, filePath: null, pagePath: null, elements: null, sel: null, dirty: new Set(), files: [], dirs: [] });
+  setCode('', { resetHistory: true });
+  $('#file-name').textContent = '';
+  reloadDesign();
+  renderInspector();
+  renderTagSelector();
+  $('#file-tree').replaceChildren();
+}
+
+function renderRecent(list) {
+  const box = $('#recent-list');
+  if (!list.length) { box.textContent = 'None yet.'; return; }
+  box.replaceChildren(...list.map((p) => {
+    const name = p.split(/[\\/]/).filter(Boolean).pop() || p;
+    return el('button', { className: 'recent', onclick: () => openSite(p).catch(fail) }, name, el('small', {}, p));
+  }));
+}
+
+async function openSite(path) {
+  if (state.dirty.size && !confirm('There are unsaved changes. Discard them and open another site?')) return;
+  await api('open_site', { path });
+  $('#folder-dialog').hidden = true;
+  await loadSite();
+}
+
+const dialog = { path: '', parent: null };
+
+function joinPath(dir, name) {
+  const sep = (state.info && state.info.sep) || '/';
+  return dir.endsWith(sep) ? dir + name : dir + sep + name;
+}
+
+async function browseTo(path) {
+  const res = await api('browse', { path });
+  dialog.path = res.path;
+  dialog.parent = res.parent;
+  $('#fd-path').value = res.path;
+  $('#fd-up').disabled = res.parent == null;
+  $('#fd-open').disabled = !res.path;
+  $('#fd-new').disabled = !res.path;
+  const list = $('#fd-list');
+  list.replaceChildren(...res.dirs.map((d) => {
+    const full = res.absolute ? d : joinPath(res.path, d);
+    return el('div', { className: 'fd-item', title: full, onclick: () => browseTo(full).catch(fail) }, d);
+  }));
+  if (!res.dirs.length) list.append(el('div', { className: 'muted', style: 'padding:8px 10px' }, 'No subfolders.'));
+  list.scrollTop = 0;
+}
+
+async function showFolderDialog() {
+  $('#folder-dialog').hidden = false;
+  await browseTo((state.info && state.info.root) || '');
+}
+
+function setupFolderDialog() {
+  $('#fd-up').onclick = () => dialog.parent != null && browseTo(dialog.parent).catch(fail);
+  $('#fd-path').addEventListener('keydown', (ev) => ev.key === 'Enter' && browseTo($('#fd-path').value).catch(fail));
+  $('#fd-cancel').onclick = () => ($('#folder-dialog').hidden = true);
+  $('#fd-open').onclick = () => dialog.path && openSite(dialog.path).catch(fail);
+  $('#fd-new').onclick = async () => {
+    const name = prompt('New folder name:');
+    if (!name) return;
+    try {
+      const res = await api('mkdir_abs', { parent: dialog.path, name });
+      await browseTo(res.path);
+    } catch (err) { fail(err); }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Shortcuts, startup
+// ---------------------------------------------------------------------------
+
+async function saveAll() {
+  if (!state.info || !state.info.root) return;
+  await flushDraft();
+  const res = await api('save_all');
+  state.dirty.clear();
+  markDirty(state.filePath, false);
+  status(res.saved.length ? 'Saved ' + res.saved.length + ' file(s)' : 'Nothing to save');
+}
+
 function handleShortcut(ev) {
   const mod = ev.ctrlKey || ev.metaKey;
   if (mod && ev.key.toLowerCase() === 's') {
     ev.preventDefault();
-    save().catch(fail);
+    (ev.shiftKey ? saveAll() : save()).catch(fail);
     return true;
+  }
+  if (ev.key === 'Escape') {
+    hideMenu();
+    $('#folder-dialog').hidden = true;
   }
   return false;
 }
@@ -686,23 +1115,33 @@ function handleShortcut(ev) {
 async function start() {
   document.querySelectorAll('#view-modes button').forEach((b) => (b.onclick = () => setView(b.dataset.view)));
   document.querySelectorAll('#split-dir button').forEach((b) => (b.onclick = () => setSplit(b.dataset.dir)));
+  document.querySelectorAll('#inspector .tabs button').forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
   $('#btn-save').onclick = () => save().catch(fail);
+  $('#btn-save-all').onclick = () => saveAll().catch(fail);
   $('#btn-revert').onclick = () => revert().catch(fail);
+  $('#btn-open-site').onclick = () => showFolderDialog().catch(fail);
+  $('#btn-welcome-open').onclick = () => showFolderDialog().catch(fail);
+  $('#btn-new-file').onclick = () => newFile().catch(fail);
+  $('#btn-new-folder').onclick = () => newFolder().catch(fail);
+  $('#file-tree').oncontextmenu = (ev) => showMenu(ev, [['New file…', () => newFile('')], ['New folder…', () => newFolder('')]]);
+  setupFolderDialog();
   window.addEventListener('keydown', handleShortcut);
+  window.addEventListener('click', hideMenu);
+  window.addEventListener('blur', hideMenu);
   window.addEventListener('beforeunload', (e) => { if (state.dirty.size) e.preventDefault(); });
+  $('#css-props').append(...CSS_PROPS.map((p) => el('option', { value: p })));
   renderInsertPanel();
 
-  let view = 'split', split = 'cols';
-  try { view = localStorage.getItem('webloom.view') || view; split = localStorage.getItem('webloom.split') || split; } catch {}
+  let view = 'split', split = 'cols', tab = 'props';
+  try {
+    view = localStorage.getItem('webloom.view') || view;
+    split = localStorage.getItem('webloom.split') || split;
+    tab = localStorage.getItem('webloom.tab') || tab;
+  } catch {}
   setView(view);
   setSplit(split);
-
-  const info = await api('info');
-  $('#site-name').textContent = info.name;
-  document.title = info.name + ' — Webloom';
-  await loadFiles();
-  const first = state.files.find((f) => /^index\.html?$/i.test(f)) || state.files.find(isHtml);
-  if (first) await openFile(first);
+  setTab(tab);
+  await loadSite();
 }
 
 start().catch(fail);

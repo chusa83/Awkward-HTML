@@ -9,24 +9,31 @@
 <body>
 <header id="toolbar">
   <strong id="site-name">Webloom</strong>
-  <span id="file-name" class="muted">No file</span>
+  <span id="file-name" class="muted"></span>
   <span class="spacer"></span>
-  <div class="group" id="view-modes">
+  <div class="group site-only" id="view-modes">
     <button data-view="code">Code</button>
     <button data-view="split" class="on">Split</button>
     <button data-view="design">Design</button>
   </div>
-  <div class="group" id="split-dir">
+  <div class="group site-only" id="split-dir">
     <button data-dir="rows" title="Code above design">⬒</button>
     <button data-dir="cols" class="on" title="Code beside design">◫</button>
   </div>
-  <button id="btn-save" title="Save (Ctrl/Cmd+S)">Save</button>
-  <button id="btn-revert" title="Discard unsaved changes">Revert</button>
+  <button id="btn-save" class="site-only" title="Save (Ctrl/Cmd+S)">Save</button>
+  <button id="btn-save-all" class="site-only" title="Save all files (Ctrl/Cmd+Shift+S)">Save all</button>
+  <button id="btn-revert" class="site-only" title="Discard unsaved changes to this file">Revert</button>
+  <button id="btn-open-site" title="Open another site folder">Open site…</button>
 </header>
 
 <div id="main">
   <aside id="files-panel">
-    <h3>Files</h3>
+    <h3 class="panel-head">Files
+      <span class="head-actions">
+        <button id="btn-new-file" title="New file">+ File</button>
+        <button id="btn-new-folder" title="New folder">+ Folder</button>
+      </span>
+    </h3>
     <div id="file-tree"></div>
     <h3>Insert</h3>
     <div id="insert-panel"></div>
@@ -42,9 +49,23 @@
   </section>
 
   <aside id="inspector">
-    <h3>Properties</h3>
-    <div id="props" class="muted">Select an element in the design or code view.</div>
+    <div class="tabs">
+      <button data-tab="props" class="on">Properties</button>
+      <button data-tab="css">CSS Designer</button>
+    </div>
+    <div id="props" class="tab-body muted">Select an element in the design or code view.</div>
+    <div id="css-designer" class="tab-body" hidden></div>
   </aside>
+
+  <div id="welcome" hidden>
+    <div class="welcome-box">
+      <h1>Webloom</h1>
+      <p class="muted">Open the folder that contains your website.</p>
+      <button id="btn-welcome-open" class="primary">Open site folder…</button>
+      <h2>Recent sites</h2>
+      <div id="recent-list" class="muted">None yet.</div>
+    </div>
+  </div>
 </div>
 
 <footer id="statusbar">
@@ -52,6 +73,27 @@
   <span class="spacer"></span>
   <span id="status" class="muted"></span>
 </footer>
+
+<div id="folder-dialog" class="modal" hidden>
+  <div class="modal-box">
+    <h2>Open site folder</h2>
+    <div class="path-row">
+      <button id="fd-up" title="Parent folder">↑</button>
+      <input id="fd-path" spellcheck="false">
+    </div>
+    <div id="fd-list"></div>
+    <div class="modal-actions">
+      <button id="fd-new">New folder…</button>
+      <span class="spacer"></span>
+      <button id="fd-cancel">Cancel</button>
+      <button id="fd-open" class="primary">Open this folder</button>
+    </div>
+  </div>
+</div>
+
+<div id="context-menu" hidden></div>
+
+<datalist id="css-props"></datalist>
 
 <script src="/__dw/static/vendor/codemirror/codemirror.js"></script>
 <script src="/__dw/static/vendor/codemirror/xml.js"></script>

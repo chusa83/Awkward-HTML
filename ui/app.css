@@ -105,3 +105,56 @@ textarea { resize: vertical; min-height: 54px; }
 #tag-selector span:hover { background: var(--panel-2); color: var(--text); }
 #tag-selector span.cur { background: var(--accent-soft); color: var(--text); }
 #status.error { color: #f87171; }
+
+/* --- Site screen, dialogs, menus --------------------------------------- */
+body.no-site .site-only, body.no-site #files-panel, body.no-site #workspace,
+body.no-site #inspector, body.no-site #statusbar { display: none !important; }
+#main { position: relative; }
+#welcome { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+#welcome[hidden] { display: none; }
+.welcome-box { width: min(520px, 90vw); }
+.welcome-box h1 { margin: 0 0 4px; font-size: 28px; }
+.welcome-box h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 28px 0 8px; }
+.recent { display: block; width: 100%; text-align: left; margin-bottom: 4px; padding: 6px 10px; }
+.recent small { display: block; color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.modal { position: fixed; inset: 0; background: rgba(0, 0, 0, .5); display: flex; align-items: center; justify-content: center; z-index: 10; }
+.modal[hidden] { display: none; }
+.modal-box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; width: min(640px, 92vw); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.modal-box h2 { margin: 0; font-size: 15px; }
+.path-row { display: flex; gap: 6px; }
+.path-row button { flex: none; }
+#fd-list { height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 3px; background: var(--bg); }
+.fd-item { padding: 4px 10px; cursor: pointer; }
+.fd-item::before { content: "📁 "; }
+.fd-item:hover { background: var(--panel-2); }
+.modal-actions { display: flex; gap: 6px; }
+
+#context-menu { position: fixed; z-index: 20; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 4px 0; min-width: 150px; box-shadow: 0 4px 16px rgba(0, 0, 0, .4); }
+#context-menu[hidden] { display: none; }
+#context-menu div { padding: 4px 12px; cursor: pointer; }
+#context-menu div:hover { background: var(--accent); color: #fff; }
+
+.panel-head { display: flex; align-items: center; }
+.head-actions { margin-left: auto; display: flex; gap: 4px; }
+.head-actions button { font-size: 10px; padding: 1px 6px; text-transform: none; letter-spacing: 0; }
+.folder-label { padding: 2px 10px; cursor: pointer; color: var(--muted); }
+
+/* --- Inspector tabs and CSS Designer ------------------------------------ */
+.tabs { display: flex; border-bottom: 1px solid var(--line); background: var(--panel-2); position: sticky; top: 0; z-index: 1; }
+.tabs button { flex: 1; border: 0; border-radius: 0; background: transparent; padding: 7px 4px; color: var(--muted); }
+.tabs button.on { color: var(--text); box-shadow: inset 0 -2px var(--accent); background: transparent; }
+.tab-body[hidden] { display: none; }
+#css-designer { padding: 8px 10px; }
+.rule { border: 1px solid var(--line); border-radius: 4px; margin-bottom: 8px; background: var(--panel-2); }
+.rule.inactive { opacity: .55; }
+.rule-head { padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.rule-sel { font: 600 12px ui-monospace, Menlo, Consolas, monospace; color: #d7ba7d; word-break: break-word; }
+.rule-src { font-size: 11px; color: var(--muted); }
+.rule-body { padding: 6px 8px; }
+.decl-row { display: grid; grid-template-columns: 1fr 1.3fr 22px; gap: 4px; margin-bottom: 4px; }
+.decl-row input { font: 12px ui-monospace, Menlo, Consolas, monospace; }
+.decl-row button { padding: 0; }
+.new-rule { display: grid; gap: 6px; margin-bottom: 12px; }
+.note { font-size: 11px; color: var(--muted); margin: 4px 0 8px; }

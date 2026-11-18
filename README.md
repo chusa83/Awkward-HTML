@@ -10,6 +10,14 @@ A small Dreamweaver-style editor for static websites: code view, design view and
 
 ## Features
 
+### Sites and files
+- **Start screen** with recent sites, and an **Open site…** folder browser (with "New folder"). No terminal needed: double-click the program and pick a folder. The program exits when the editor window is closed.
+- **File tree** with New file / New folder buttons and a right-click menu: open, rename/move, delete (files and empty folders only), new file/folder here. New `.html` files start from a basic page template.
+- Renaming a file does **not** update links that point to it.
+- **Save** (Ctrl/Cmd+S) and **Save all** (Ctrl/Cmd+Shift+S). Closing the window with unsaved changes asks for confirmation.
+
+### Design view and inspector
+
 - **Split view**: code and design side by side or stacked; code-only and design-only modes.
 - **Click in design → code**: selects the element's start tag in the editor and highlights its whole range.
 - **Cursor in code → design**: moving the cursor selects the innermost element under it in the design view and inspector.
@@ -19,13 +27,21 @@ A small Dreamweaver-style editor for static websites: code view, design view and
 - **Insert panel**: common elements, inserted after the selection (or inside it).
 - **Delete** the selected element with Delete/Backspace in the design view.
 - **Live preview of unsaved changes**, including CSS and JS: unsaved files are served from memory, so editing `site.css` updates the open page immediately.
-- Save with Ctrl/Cmd+S. Root-relative URLs (`/css/site.css`) work because the site is served at `/`.
+- Root-relative URLs (`/css/site.css`) work because the site is served at `/`.
+
+### CSS Designer
+- Lists the rules, from the page's linked stylesheets and `<style>` blocks, whose selectors match the selected element, in source order. "Show all rules" lists every rule.
+- Rules inside `@media` are shown with their condition, dimmed when the condition doesn't apply at the current design-view width. Rules that only apply in a state (`:hover`, `::before`…) are labelled as such.
+- Edit, add or remove properties; add a new rule (selector suggested from the selection) to any of the page's local stylesheets. Changes are unsaved drafts like any other edit, and the design view updates immediately.
+- Only the edited rule's block is rewritten, keeping its one-line or multi-line layout. Comments inside that block are lost; the rest of the file is untouched.
 
 ## Run
 
 ```bash
 cargo run --release -- path/to/your/site
 ```
+
+Without a folder argument it opens on the start screen.
 
 Options:
 
@@ -44,7 +60,9 @@ Prebuilt binaries for the three OSes are produced by GitHub Actions (`.github/wo
 ## Limitations (current)
 
 - No WYSIWYG typing across elements: in-place editing only works on elements whose content is plain text. Rich content is edited in the code view.
-- Only **inline styles** are edited by the inspector. Editing rules in stylesheets (Dreamweaver's CSS Designer) is not implemented yet.
+- The CSS Designer doesn't compute specificity or show which declaration wins; rules are listed in source order. Rules with nested CSS, `@font-face` and `@keyframes` are not editable from the panel (use the code view). External (CDN) stylesheets are listed but read-only.
+- If a Chromium browser is already running with Webloom's profile (a second Webloom instance), the program can't tell when its window closes and keeps running until stopped.
+- No native menus or native file dialogs: the UI runs in the browser window.
 - One open file at a time (unsaved changes to other files are kept in memory and marked with ●).
 - Server-side includes, PHP and Dreamweaver templates (`.dwt`) are not processed; pages are served as they are on disk.
 - The HTML scanner is forgiving but not a full HTML5 parser. Very unusual markup can confuse the element mapping; the code view always remains usable.
@@ -56,6 +74,7 @@ Prebuilt binaries for the three OSes are produced by GitHub Actions (`.github/wo
 src/main.rs     argument parsing, browser detection and launch
 src/server.rs   HTTP server: site files, editor assets, JSON API
 src/html.rs     HTML scanner, element ranges, source edits (with tests)
+src/css.rs      CSS scanner and rule edits for the CSS Designer (with tests)
 ui/             editor UI (plain HTML/CSS/JS, embedded in the binary)
 ui/vendor/      CodeMirror 5 (MIT)
 example/        a tiny site to try the editor on
