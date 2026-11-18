@@ -341,7 +341,7 @@ function startInlineEdit(node) {
   };
   const onBlur = () => finish(true);
   const onKey = (ev) => {
-    if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); node.blur(); }
+    if (ev.key === 'Enter') { ev.preventDefault(); node.blur(); }
     if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
     ev.stopPropagation();
   };

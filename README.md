@@ -15,7 +15,7 @@ A small Dreamweaver-style editor for static websites: code view, design view and
 - **Cursor in code → design**: moving the cursor selects the innermost element under it in the design view and inspector.
 - **Tag selector** in the status bar (`<html> <body> <main> <section#intro> <h2>`), click to select an ancestor.
 - **Property inspector**: id, class, tag-specific attributes (`href`, `src`, `alt`…), text content, common inline-style properties with the computed value shown as a hint, and a generic attribute list.
-- **Edit text in place**: double-click an element that only contains text. Enter commits, Shift+Enter adds a line break, Esc cancels.
+- **Edit text in place**: double-click an element that only contains text. Enter commits, Esc cancels.
 - **Insert panel**: common elements, inserted after the selection (or inside it).
 - **Delete** the selected element with Delete/Backspace in the design view.
 - **Live preview of unsaved changes**, including CSS and JS: unsaved files are served from memory, so editing `site.css` updates the open page immediately.
