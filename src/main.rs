@@ -14,12 +14,14 @@
 
 mod css;
 mod html;
+mod log;
 mod server;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
+    log::install_panic_hook();
     let mut site: Option<PathBuf> = None;
     let mut port: u16 = 0;
     let mut open_browser = true;
@@ -35,6 +37,7 @@ fn main() {
             "-h" | "--help" => {
                 println!("Usage: awkward-html [SITE_FOLDER] [--port N] [--no-browser]");
                 println!("Set AWKWARD_HTML_BROWSER to the path of a Chromium-based browser to override detection.");
+                println!("Set AWKWARD_HTML_DEBUG=1 to log every API call. Log file: {}", log::path().display());
                 println!("License: PolyForm Shield 1.0.0 <https://polyformproject.org/licenses/shield/1.0.0>");
                 println!("Required Notice: Copyright (c) 2026 chusa83 (https://github.com/chusa83/Awkward-HTML)");
                 return;
@@ -45,13 +48,13 @@ fn main() {
     let root = site.map(|site| match site.canonicalize() {
         Ok(p) if p.is_dir() => p,
         _ => {
-            eprintln!("Not a folder: {}", site.display());
+            log::error(&format!("Not a folder: {}", site.display()));
             std::process::exit(1);
         }
     });
 
     let server = tiny_http::Server::http(("127.0.0.1", port)).unwrap_or_else(|e| {
-        eprintln!("Could not start server: {e}");
+        log::error(&format!("Could not start server: {e}"));
         std::process::exit(1);
     });
     let port = server.server_addr().to_ip().map(|a| a.port()).unwrap_or(port);
@@ -62,6 +65,12 @@ fn main() {
         println!("Site:   {}", r.display());
     }
     println!("Editor: {url}");
+    log::info(&format!(
+        "awkward-html {} started, site: {}, log: {}",
+        env!("CARGO_PKG_VERSION"),
+        root.as_ref().map(|r| r.display().to_string()).unwrap_or_else(|| "(none)".into()),
+        log::path().display()
+    ));
 
     let app = server::App::new(root, token);
     if !open_browser {
@@ -83,7 +92,7 @@ fn main() {
             }
         }
         Err(e) => {
-            eprintln!("{e}");
+            log::error(&e);
             open_default_browser(&url);
             server::run(server, app);
         }
@@ -100,7 +109,7 @@ fn open_default_browser(url: &str) {
         Command::new("xdg-open").arg(url).spawn()
     };
     if r.is_err() {
-        eprintln!("Open {url} in Chrome, Chromium or Edge.");
+        log::error(&format!("Could not open a browser. Open {url} in Chrome, Chromium or Edge."));
     }
 }
 

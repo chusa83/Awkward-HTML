@@ -9,7 +9,7 @@
 //! and the design view iframe is same-origin with the editor, which lets the
 //! editor read and highlight the page DOM directly.
 
-use crate::{css, html};
+use crate::{css, html, log};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -32,6 +32,7 @@ impl App {
     }
 
     fn open_site(&mut self, root: PathBuf) {
+        log::info(&format!("open site {}", root.display()));
         remember_recent(&root);
         self.root = Some(root);
         self.drafts.clear();
@@ -70,9 +71,15 @@ fn handle(app: &mut App, req: &mut Request) -> Resp {
             let _ = req.as_reader().read_to_string(&mut body);
         }
         let body: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+        if name != "log" {
+            log::debug(&format!("api {name} path={}", body["path"].as_str().unwrap_or("")));
+        }
         return match api(app, name, &body) {
             Ok(v) => json_resp(&v),
-            Err(e) => text(400, &e),
+            Err(e) => {
+                log::error(&format!("api {name} path={}: {e}", body["path"].as_str().unwrap_or("")));
+                text(400, &e)
+            }
         };
     }
     serve_site(app, &path)
@@ -89,6 +96,13 @@ fn api(app: &mut App, name: &str, body: &Value) -> Result<Value, String> {
                 "sep": std::path::MAIN_SEPARATOR.to_string(),
                 "version": env!("CARGO_PKG_VERSION"),
             }));
+        }
+        "log" => {
+            log::from_ui(body["level"].as_str().unwrap_or("info"), body["message"].as_str().unwrap_or(""));
+            return Ok(json!({}));
+        }
+        "log_info" => {
+            return Ok(json!({ "path": log::path().display().to_string(), "debug": log::debug_enabled() }));
         }
         "browse" => return browse(body["path"].as_str().unwrap_or("")),
         "mkdir_abs" => {
@@ -281,7 +295,25 @@ fn read_source(app: &App, root: &Path, path: &str) -> Result<String, String> {
     }
     let full = resolve(root, path).ok_or("bad path")?;
     let bytes = std::fs::read(&full).map_err(|e| e.to_string())?;
-    String::from_utf8(bytes).map_err(|_| "not a text file".to_string())
+    let text = String::from_utf8(bytes).map_err(|_| "not a text file".to_string())?;
+    if text.contains('\r') {
+        log::info(&format!("{path}: CR/CRLF line endings converted to LF (saving writes LF)"));
+    }
+    Ok(normalize_newlines(text))
+}
+
+/// Convert CRLF and lone CR line breaks to LF.
+///
+/// The code editor (CodeMirror) always works with LF internally, while the
+/// element offsets sent to the UI are computed from this text. A file saved
+/// with Windows line endings would otherwise give offsets that drift one
+/// character per line, and selecting in the design view would highlight the
+/// wrong code. Saving writes the file back with LF.
+fn normalize_newlines(text: String) -> String {
+    if !text.contains('\r') {
+        return text;
+    }
+    text.replace("\r\n", "\n").replace('\r', "\n")
 }
 
 fn with_elements(path: &str, content: &str, mut v: Value) -> Value {
@@ -413,7 +445,7 @@ fn browse(path: &str) -> Result<Value, String> {
     Ok(json!({ "path": display, "parent": parent, "dirs": dirs, "absolute": false }))
 }
 
-fn config_dir() -> PathBuf {
+pub fn config_dir() -> PathBuf {
     if cfg!(windows) {
         std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(home_dir).join("awkward-html")
     } else if cfg!(target_os = "macos") {
@@ -555,4 +587,27 @@ fn percent_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn newlines_become_lf() {
+        assert_eq!(normalize_newlines("a\r\nb\rc\nd".into()), "a\nb\nc\nd");
+        assert_eq!(normalize_newlines("plain\n".into()), "plain\n");
+    }
+
+    #[test]
+    fn crlf_offsets_match_lf_editor() {
+        // What the editor holds after loading a CRLF file is the LF version,
+        // so offsets must be computed on that text.
+        let crlf = "<html>\r\n<body>\r\n<p>x</p>\r\n</body>\r\n</html>\r\n";
+        let lf = normalize_newlines(crlf.into());
+        let els = html::parse(&lf);
+        let info = html::element_infos(&lf, &els);
+        let p = info.iter().find(|e| e.tag == "p").unwrap();
+        assert_eq!(&lf[p.start..p.end], "<p>x</p>");
+    }
 }
