@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Webloom</title>
+<link rel="stylesheet" href="/__dw/static/vendor/codemirror/codemirror.css">
+<link rel="stylesheet" href="/__dw/static/app.css">
+</head>
+<body>
+<header id="toolbar">
+  <strong id="site-name">Webloom</strong>
+  <span id="file-name" class="muted">No file</span>
+  <span class="spacer"></span>
+  <div class="group" id="view-modes">
+    <button data-view="code">Code</button>
+    <button data-view="split" class="on">Split</button>
+    <button data-view="design">Design</button>
+  </div>
+  <div class="group" id="split-dir">
+    <button data-dir="rows" title="Code above design">⬒</button>
+    <button data-dir="cols" class="on" title="Code beside design">◫</button>
+  </div>
+  <button id="btn-save" title="Save (Ctrl/Cmd+S)">Save</button>
+  <button id="btn-revert" title="Discard unsaved changes">Revert</button>
+</header>
+
+<div id="main">
+  <aside id="files-panel">
+    <h3>Files</h3>
+    <div id="file-tree"></div>
+    <h3>Insert</h3>
+    <div id="insert-panel"></div>
+    <label class="check"><input type="checkbox" id="insert-inside"> Insert inside selection</label>
+  </aside>
+
+  <section id="workspace" class="split cols">
+    <div id="code-pane"><div id="code"></div></div>
+    <div id="design-pane">
+      <iframe id="design" title="Design view"></iframe>
+      <div id="design-empty" class="muted">Open an HTML file to see the design view.</div>
+    </div>
+  </section>
+
+  <aside id="inspector">
+    <h3>Properties</h3>
+    <div id="props" class="muted">Select an element in the design or code view.</div>
+  </aside>
+</div>
+
+<footer id="statusbar">
+  <div id="tag-selector"></div>
+  <span class="spacer"></span>
+  <span id="status" class="muted"></span>
+</footer>
+
+<script src="/__dw/static/vendor/codemirror/codemirror.js"></script>
+<script src="/__dw/static/vendor/codemirror/xml.js"></script>
+<script src="/__dw/static/vendor/codemirror/javascript.js"></script>
+<script src="/__dw/static/vendor/codemirror/css.js"></script>
+<script src="/__dw/static/vendor/codemirror/htmlmixed.js"></script>
+<script src="/__dw/static/vendor/codemirror/xml-fold.js"></script>
+<script src="/__dw/static/vendor/codemirror/matchtags.js"></script>
+<script src="/__dw/static/app.js"></script>
+</body>
+</html>

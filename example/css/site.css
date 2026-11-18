@@ -1,0 +1,4 @@
+body { font-family: system-ui, sans-serif; margin: 0; color: #222; }
+.top { background: #0f172a; color: #fff; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+.top a { color: #93c5fd; margin-left: 12px; }
+main { padding: 24px; max-width: 760px; }
