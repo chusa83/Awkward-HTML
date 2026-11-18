@@ -57,6 +57,7 @@ jobs:
         run: |
           mkdir -p dist
           cp target/release/awkward-html.exe dist/AwkwardHTML.exe
+          cp LICENSE dist/AwkwardHTML_LICENSE.txt
 
       - name: Package macOS app
         if: runner.os == 'macOS'
@@ -68,6 +69,7 @@ jobs:
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
           cp target/release/awkward-html "$APP/Contents/MacOS/awkward-html"
           cp branding/icon.icns "$APP/Contents/Resources/AppIcon.icns"
+          cp LICENSE "$APP/Contents/Resources/LICENSE.txt"
           {
             echo '<?xml version="1.0" encoding="UTF-8"?>'
             echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
@@ -96,6 +98,7 @@ jobs:
           mkdir -p "$D"
           cp target/release/awkward-html "$D/"
           cp branding/png/icon-256.png "$D/awkward-html.png"
+          cp LICENSE "$D/LICENSE.txt"
           printf '%s\n' \
             '[Desktop Entry]' \
             'Type=Application' \
@@ -112,6 +115,7 @@ jobs:
           if-no-files-found: error
           path: |
             dist/AwkwardHTML.exe
+            dist/AwkwardHTML_LICENSE.txt
             dist/AwkwardHTML_macos.zip
             dist/AwkwardHTML_linux_x64.tar.gz
 
@@ -138,6 +142,10 @@ jobs:
             - macOS (Apple Silicon): AwkwardHTML_macos.zip
             - Linux (x64): AwkwardHTML_linux_x64.tar.gz
 
+            License
+            - PolyForm Shield License 1.0.0 (https://polyformproject.org/licenses/shield/1.0.0): free for any use, including paid client work, except providing a competing product. Full text: AwkwardHTML_LICENSE.txt.
+            - Required Notice: Copyright (c) 2026 chusa83 (https://github.com/chusa83/Awkward-HTML)
+
             Requirements
             - A Chromium-based browser: Google Chrome, Chromium, Microsoft Edge or Brave. Windows already has Edge.
 
@@ -146,6 +154,7 @@ jobs:
             - macOS: unzip and try to open AwkwardHTML. When macOS blocks it, open System Settings > Privacy & Security, scroll down and click Open Anyway (on older macOS: right click the app, choose Open, then confirm Open).
             - Linux: extract, then run ./awkward-html from the AwkwardHTML folder. To add it to the app menu, copy awkward-html to ~/.local/bin, awkward-html.png to ~/.local/share/icons and awkward-html.desktop to ~/.local/share/applications.
           files: |
+            release_files/AwkwardHTML_LICENSE.txt
             release_files/AwkwardHTML.exe
             release_files/AwkwardHTML_macos.zip
             release_files/AwkwardHTML_linux_x64.tar.gz

@@ -118,3 +118,21 @@ branding/       icon sources and generated icon files
 build.rs        embeds the icon in the Windows executable
 example/        a tiny site to try the editor on
 ```
+
+## License
+
+awkward HTML is **source-available**, not open source. It's licensed under the [PolyForm Shield License 1.0.0](LICENSE). In plain words (the license text is what counts):
+
+- You may use it for any purpose, including paid work such as building websites for clients.
+- You may change it and share copies, including changed copies.
+- You may **not** use it, or a changed version of it, to provide a product that competes with awkward HTML. That includes free alternatives and rebranded forks.
+
+Improvements are welcome as pull requests to this repository; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Name and logo
+
+The name "awkward HTML" and the awkward-face logo identify the official project. The software license doesn't grant rights to them. Changed versions must not use the name or logo, and must not suggest they are official.
+
+### Third-party code
+
+CodeMirror 5 (in `ui/vendor/codemirror`) is MIT licensed by its authors; see its `LICENSE` file. The Rust crates the app is built with keep their own licenses.

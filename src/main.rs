@@ -35,6 +35,8 @@ fn main() {
             "-h" | "--help" => {
                 println!("Usage: awkward-html [SITE_FOLDER] [--port N] [--no-browser]");
                 println!("Set AWKWARD_HTML_BROWSER to the path of a Chromium-based browser to override detection.");
+                println!("License: PolyForm Shield 1.0.0 <https://polyformproject.org/licenses/shield/1.0.0>");
+                println!("Required Notice: Copyright (c) 2026 chusa83 (https://github.com/chusa83/Awkward-HTML)");
                 return;
             }
             _ => site = Some(PathBuf::from(a)),
