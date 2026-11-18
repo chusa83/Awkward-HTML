@@ -38,9 +38,35 @@ async function api(name, body = {}) {
     headers: { 'X-DW-Token': TOKEN, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const err = new Error(await res.text());
+    err.fromServer = true; // the server already logged it
+    throw err;
+  }
   return res.json();
 }
+
+/**
+ * Write a line to the app's log file (awkward-html.log in the config folder).
+ * Fire and forget: logging must never break the editor.
+ */
+function log(level, message) {
+  try {
+    fetch('/__dw/api/log', {
+      method: 'POST',
+      headers: { 'X-DW-Token': TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level, message: String(message) }),
+    }).catch(() => {});
+  } catch {}
+}
+
+window.addEventListener('error', (e) => {
+  log('error', `${e.message} at ${e.filename}:${e.lineno}:${e.colno}${e.error && e.error.stack ? '\n' + e.error.stack : ''}`);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason;
+  log('error', 'unhandled rejection: ' + (r && r.stack ? r.stack : r));
+});
 
 function status(msg, isError = false) {
   const el = $('#status');
@@ -50,6 +76,7 @@ function status(msg, isError = false) {
 
 function fail(err) {
   console.error(err);
+  if (!err || !err.fromServer) log('error', err && err.stack ? err.stack : err);
   const msg = String(err.message || err);
   // The status bar is hidden on the start screen and behind dialogs.
   if (document.body.classList.contains('no-site') || !$('#folder-dialog').hidden) alert(msg);
@@ -388,6 +415,18 @@ function onDesignKey(ev) {
 // Selection: keeps code, design, inspector and tag selector in sync
 // ---------------------------------------------------------------------------
 
+/**
+ * The element's range should start with its own start tag. If it doesn't,
+ * the offsets from the server and the editor text disagree (as happened with
+ * CRLF files), so write the details to the log.
+ */
+function checkOffsets(idx, e, a, from) {
+  const found = cm.getRange(a, cm.posFromIndex(e.start + e.tag.length + 1));
+  if (found.toLowerCase() === '<' + e.tag) return;
+  log('warn', `selection offset mismatch in ${state.filePath}: element #${idx} <${e.tag}> ` +
+    `expected at line ${a.line + 1}, col ${a.ch + 1}, found ${JSON.stringify(found)} (from ${from || 'other'})`);
+}
+
 function select(idx, { from } = {}) {
   state.sel = idx;
   if (codeMark) { codeMark.clear(); codeMark = null; }
@@ -395,6 +434,7 @@ function select(idx, { from } = {}) {
   if (e) {
     const a = cm.posFromIndex(e.start);
     const b = cm.posFromIndex(e.end);
+    checkOffsets(idx, e, a, from);
     codeMark = cm.markText(a, b, { className: 'dw-code-sel' });
     if (from !== 'code') {
       state.quiet = true;

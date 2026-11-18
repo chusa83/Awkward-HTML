@@ -69,6 +69,16 @@ cargo run --release -- example
 
 `awkward-html --version` prints the version.
 
+### Log file
+
+The program writes a log to `awkward-html.log` in its config folder (the same folder as the recent-sites list):
+
+- Windows: `%APPDATA%\awkward-html\awkward-html.log`
+- macOS: `~/Library/Application Support/awkward-html/awkward-html.log`
+- Linux: `~/.config/awkward-html/awkward-html.log` (or under `$XDG_CONFIG_HOME`)
+
+It records startup, opened sites, failed operations, crashes, errors in the editor UI and selection mismatches between the design view and the code. Set `AWKWARD_HTML_DEBUG=1` to also log every API call. When the file passes 1 MB it is moved to `awkward-html.log.old`. Attach it to bug reports.
+
 ## Versions and releases
 
 Versions are `MAJOR.MINOR.PATCH`: MAJOR marks a completed version, MINOR improvements, PATCH corrections.
@@ -100,6 +110,7 @@ The first needs Playwright with Chromium, the second Pillow.
 - The CSS Designer doesn't compute specificity or show which declaration wins; rules are listed in source order. Rules with nested CSS, `@font-face` and `@keyframes` are not editable from the panel (use the code view). External (CDN) stylesheets are listed but read-only.
 - If a Chromium browser is already running with awkward HTML's profile (a second awkward HTML instance), the program can't tell when its window closes and keeps running until stopped.
 - No native menus or native file dialogs: the UI runs in the browser window.
+- Files are edited with LF line endings. Files with Windows (CRLF) line endings are converted when opened and saved back with LF.
 - One open file at a time (unsaved changes to other files are kept in memory and marked with ●).
 - Server-side includes, PHP and Dreamweaver templates (`.dwt`) are not processed; pages are served as they are on disk.
 - The HTML scanner is forgiving but not a full HTML5 parser. Very unusual markup can confuse the element mapping; the code view always remains usable.
@@ -110,6 +121,7 @@ The first needs Playwright with Chromium, the second Pillow.
 ```
 src/main.rs     argument parsing, browser detection and launch
 src/server.rs   HTTP server: site files, editor assets, JSON API
+src/log.rs      log file (awkward-html.log in the config folder)
 src/html.rs     HTML scanner, element ranges, source edits (with tests)
 src/css.rs      CSS scanner and rule edits for the CSS Designer (with tests)
 ui/             editor UI (plain HTML/CSS/JS, embedded in the binary)
