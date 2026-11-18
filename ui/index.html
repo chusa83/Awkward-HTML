@@ -2,13 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Webloom</title>
+<title>awkward HTML</title>
+<link rel="icon" type="image/png" sizes="16x16" href="/__dw/static/icon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/__dw/static/icon-32.png">
+<link rel="icon" type="image/png" sizes="256x256" href="/__dw/static/icon-256.png">
 <link rel="stylesheet" href="/__dw/static/vendor/codemirror/codemirror.css">
 <link rel="stylesheet" href="/__dw/static/app.css">
 </head>
 <body>
 <header id="toolbar">
-  <strong id="site-name">Webloom</strong>
+  <img class="tb-logo" src="/__dw/static/icon-32.png" alt="">
+  <strong id="site-name">awkward HTML</strong>
   <span id="file-name" class="muted"></span>
   <span class="spacer"></span>
   <div class="group site-only" id="view-modes">
@@ -59,8 +63,9 @@
 
   <div id="welcome" hidden>
     <div class="welcome-box">
-      <h1>Webloom</h1>
-      <p class="muted">Open the folder that contains your website.</p>
+      <img class="welcome-logo" src="/__dw/static/icon-256.png" alt="">
+      <h1 class="wordmark">awkward <span>html</span></h1>
+      <p class="muted">Open the folder that contains your website. <span id="app-version"></span></p>
       <button id="btn-welcome-open" class="primary">Open site folder…</button>
       <h2>Recent sites</h2>
       <div id="recent-list" class="muted">None yet.</div>

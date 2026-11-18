@@ -1,4 +1,4 @@
-// Webloom editor UI.
+// awkward HTML editor UI.
 //
 // Model: the source text is always the truth. The design view is the page
 // served by the Rust side with `data-dw="<n>"` on every element, where <n> is
@@ -688,7 +688,7 @@ function setView(view) {
   document.querySelectorAll('#view-modes button').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
   $('#split-dir').style.display = view === 'split' ? '' : 'none';
   cm.refresh();
-  try { localStorage.setItem('webloom.view', view); } catch {}
+  try { localStorage.setItem('ahtml.view', view); } catch {}
 }
 
 function setSplit(dir) {
@@ -697,7 +697,7 @@ function setSplit(dir) {
   ws.classList.add(dir);
   document.querySelectorAll('#split-dir button').forEach((b) => b.classList.toggle('on', b.dataset.dir === dir));
   cm.refresh();
-  try { localStorage.setItem('webloom.split', dir); } catch {}
+  try { localStorage.setItem('ahtml.split', dir); } catch {}
 }
 
 
@@ -707,7 +707,7 @@ function setTab(tab) {
   $('#props').hidden = tab !== 'props';
   $('#css-designer').hidden = tab !== 'css';
   if (tab === 'css') renderCss();
-  try { localStorage.setItem('webloom.tab', tab); } catch {}
+  try { localStorage.setItem('ahtml.tab', tab); } catch {}
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,14 +1000,15 @@ async function loadSite() {
   document.body.classList.toggle('no-site', !info.root);
   $('#welcome').hidden = !!info.root;
   if (!info.root) {
-    $('#site-name').textContent = 'Webloom';
-    document.title = 'Webloom';
+    $('#site-name').textContent = 'awkward HTML';
+    document.title = 'awkward HTML';
     renderRecent(info.recent);
+    $('#app-version').textContent = 'v' + info.version;
     return;
   }
   $('#site-name').textContent = info.name;
   $('#site-name').title = info.root;
-  document.title = info.name + ' — Webloom';
+  document.title = info.name + ' — awkward HTML';
   cm.refresh();
   await loadFiles();
   const first = state.files.find((f) => /^index\.html?$/i.test(f)) || state.files.find(isHtml);
@@ -1134,9 +1135,9 @@ async function start() {
 
   let view = 'split', split = 'cols', tab = 'props';
   try {
-    view = localStorage.getItem('webloom.view') || view;
-    split = localStorage.getItem('webloom.split') || split;
-    tab = localStorage.getItem('webloom.tab') || tab;
+    view = localStorage.getItem('ahtml.view') || view;
+    split = localStorage.getItem('ahtml.split') || split;
+    tab = localStorage.getItem('ahtml.tab') || tab;
   } catch {}
   setView(view);
   setSplit(split);

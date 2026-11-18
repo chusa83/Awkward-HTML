@@ -87,6 +87,7 @@ fn api(app: &mut App, name: &str, body: &Value) -> Result<Value, String> {
                 "name": app.root.as_ref().and_then(|r| r.file_name()).map(|n| n.to_string_lossy().to_string()),
                 "recent": load_recent(),
                 "sep": std::path::MAIN_SEPARATOR.to_string(),
+                "version": env!("CARGO_PKG_VERSION"),
             }));
         }
         "browse" => return browse(body["path"].as_str().unwrap_or("")),
@@ -414,14 +415,14 @@ fn browse(path: &str) -> Result<Value, String> {
 
 fn config_dir() -> PathBuf {
     if cfg!(windows) {
-        std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(home_dir).join("webloom")
+        std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(home_dir).join("awkward-html")
     } else if cfg!(target_os = "macos") {
-        home_dir().join("Library/Application Support/webloom")
+        home_dir().join("Library/Application Support/awkward-html")
     } else {
         std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home_dir().join(".config"))
-            .join("webloom")
+            .join("awkward-html")
     }
 }
 
@@ -499,6 +500,9 @@ assets!(
     "index.html",
     "app.js",
     "app.css",
+    "icon-16.png",
+    "icon-32.png",
+    "icon-256.png",
     "vendor/codemirror/codemirror.js",
     "vendor/codemirror/codemirror.css",
     "vendor/codemirror/xml.js",

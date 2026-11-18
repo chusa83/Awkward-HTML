@@ -158,3 +158,9 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .decl-row button { padding: 0; }
 .new-rule { display: grid; gap: 6px; margin-bottom: 12px; }
 .note { font-size: 11px; color: var(--muted); margin: 4px 0 8px; }
+
+/* --- Branding ------------------------------------------------------------ */
+.tb-logo { width: 20px; height: 20px; border-radius: 5px; }
+.welcome-logo { width: 96px; height: 96px; display: block; margin-bottom: 14px; }
+.wordmark { font-weight: 800; letter-spacing: -.02em; }
+.wordmark span { background: #ffd23f; color: #232340; padding: 0 8px; border-radius: 8px; }

@@ -1,0 +1,151 @@
+name: Build apps
+
+# Run by hand from the Actions tab. Versions are MAJOR.MINOR.PATCH:
+#   MAJOR = completed version, MINOR = improvements, PATCH = corrections.
+# The version typed here must match `version` in Cargo.toml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version tag, for example v0.1.3 (must match Cargo.toml)"
+        required: true
+        default: "v0.1.3"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if ! [[ "$INPUT_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must look like v0.1.3, got '$INPUT_VERSION'"; exit 1
+          fi
+          cargo_version=$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)
+          if [ "v$cargo_version" != "$INPUT_VERSION" ]; then
+            echo "::error::Cargo.toml says $cargo_version but the release is $INPUT_VERSION. Update Cargo.toml first."; exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$INPUT_VERSION" >/dev/null; then
+            echo "::error::Tag $INPUT_VERSION already exists."; exit 1
+          fi
+
+  build:
+    needs: check
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+          - os: macos-latest
+            label: macos
+          - os: ubuntu-22.04 # older glibc, so the binary runs on more distributions
+            label: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: cargo test
+      - name: Build
+        run: cargo build --release
+
+      - name: Package Windows app
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/release/awkward-html.exe dist/AwkwardHTML.exe
+
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          APP=dist/AwkwardHTML.app
+          V="${VERSION#v}"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp target/release/awkward-html "$APP/Contents/MacOS/awkward-html"
+          cp branding/icon.icns "$APP/Contents/Resources/AppIcon.icns"
+          {
+            echo '<?xml version="1.0" encoding="UTF-8"?>'
+            echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+            echo '<plist version="1.0"><dict>'
+            echo '<key>CFBundleName</key><string>awkward HTML</string>'
+            echo '<key>CFBundleDisplayName</key><string>awkward HTML</string>'
+            echo '<key>CFBundleIdentifier</key><string>io.github.chusa83.awkwardhtml</string>'
+            echo '<key>CFBundleExecutable</key><string>awkward-html</string>'
+            echo '<key>CFBundleIconFile</key><string>AppIcon</string>'
+            echo '<key>CFBundlePackageType</key><string>APPL</string>'
+            echo "<key>CFBundleShortVersionString</key><string>$V</string>"
+            echo "<key>CFBundleVersion</key><string>$V</string>"
+            echo '<key>LSMinimumSystemVersion</key><string>11.0</string>'
+            # The editor window belongs to the browser; this launcher stays out of the Dock.
+            echo '<key>LSUIElement</key><true/>'
+            echo '</dict></plist>'
+          } > "$APP/Contents/Info.plist"
+          plutil -lint "$APP/Contents/Info.plist"
+          codesign --force --deep --sign - "$APP"
+          ditto -c -k --keepParent "$APP" dist/AwkwardHTML_macos.zip
+
+      - name: Package Linux app
+        if: runner.os == 'Linux'
+        run: |
+          D=dist/AwkwardHTML
+          mkdir -p "$D"
+          cp target/release/awkward-html "$D/"
+          cp branding/png/icon-256.png "$D/awkward-html.png"
+          printf '%s\n' \
+            '[Desktop Entry]' \
+            'Type=Application' \
+            'Name=awkward HTML' \
+            'Comment=Code and design editor for websites' \
+            'Exec=awkward-html' \
+            'Icon=awkward-html' \
+            'Categories=Development;WebDevelopment;' > "$D/awkward-html.desktop"
+          tar -C dist -czf dist/AwkwardHTML_linux_x64.tar.gz AwkwardHTML
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AwkwardHTML_${{ matrix.label }}
+          if-no-files-found: error
+          path: |
+            dist/AwkwardHTML.exe
+            dist/AwkwardHTML_macos.zip
+            dist/AwkwardHTML_linux_x64.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release_files
+          merge-multiple: true
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          name: awkward HTML ${{ inputs.version }}
+          body: |
+            Code and design editor for websites: split code/design view, property inspector and CSS Designer.
+
+            Downloads
+            - Windows: AwkwardHTML.exe
+            - macOS (Apple Silicon): AwkwardHTML_macos.zip
+            - Linux (x64): AwkwardHTML_linux_x64.tar.gz
+
+            Requirements
+            - A Chromium-based browser: Google Chrome, Chromium, Microsoft Edge or Brave. Windows already has Edge.
+
+            First launch warnings (the apps are not code signed)
+            - Windows: if SmartScreen says "Windows protected your PC", click More info, then Run anyway.
+            - macOS: unzip and try to open AwkwardHTML. When macOS blocks it, open System Settings > Privacy & Security, scroll down and click Open Anyway (on older macOS: right click the app, choose Open, then confirm Open).
+            - Linux: extract, then run ./awkward-html from the AwkwardHTML folder. To add it to the app menu, copy awkward-html to ~/.local/bin, awkward-html.png to ~/.local/share/icons and awkward-html.desktop to ~/.local/share/applications.
+          files: |
+            release_files/AwkwardHTML.exe
+            release_files/AwkwardHTML_macos.zip
+            release_files/AwkwardHTML_linux_x64.tar.gz

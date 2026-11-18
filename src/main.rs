@@ -1,10 +1,10 @@
-//! Webloom: a small Dreamweaver-style site editor.
+//! awkward HTML: a small Dreamweaver-style site editor.
 //!
 //! The Rust binary serves the editor UI and the site on 127.0.0.1 and opens
 //! it in a Chromium-based browser (Chrome, Chromium, Edge, Brave) in "app"
 //! mode, so it looks like a desktop window.
 //!
-//! Usage: webloom [SITE_FOLDER] [--port N] [--no-browser]
+//! Usage: awkward-html [SITE_FOLDER] [--port N] [--no-browser]
 //!
 //! Without SITE_FOLDER the editor opens on its start screen, where a site
 //! folder can be picked. The program exits when the editor window is closed.
@@ -28,9 +28,13 @@ fn main() {
         match a.as_str() {
             "--port" => port = args.next().and_then(|p| p.parse().ok()).unwrap_or(0),
             "--no-browser" => open_browser = false,
+            "-V" | "--version" => {
+                println!("awkward-html {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
             "-h" | "--help" => {
-                println!("Usage: webloom [SITE_FOLDER] [--port N] [--no-browser]");
-                println!("Set WEBLOOM_BROWSER to the path of a Chromium-based browser to override detection.");
+                println!("Usage: awkward-html [SITE_FOLDER] [--port N] [--no-browser]");
+                println!("Set AWKWARD_HTML_BROWSER to the path of a Chromium-based browser to override detection.");
                 return;
             }
             _ => site = Some(PathBuf::from(a)),
@@ -120,10 +124,10 @@ fn random_token() -> String {
 }
 
 fn launch_browser(url: &str) -> Result<std::process::Child, String> {
-    let exe = find_browser().ok_or("No Chromium-based browser found (set WEBLOOM_BROWSER).")?;
+    let exe = find_browser().ok_or("No Chromium-based browser found (set AWKWARD_HTML_BROWSER).")?;
     // Separate profile so the window opens even if the browser is already running,
     // and so the editor never touches the user's normal browsing profile.
-    let profile = std::env::temp_dir().join("webloom-profile");
+    let profile = std::env::temp_dir().join("awkward-html-profile");
     Command::new(&exe)
         .arg(format!("--app={url}"))
         .arg(format!("--user-data-dir={}", profile.display()))
@@ -135,7 +139,7 @@ fn launch_browser(url: &str) -> Result<std::process::Child, String> {
 }
 
 fn find_browser() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("WEBLOOM_BROWSER") {
+    if let Ok(p) = std::env::var("AWKWARD_HTML_BROWSER") {
         return Some(PathBuf::from(p));
     }
     let candidates: &[&str] = if cfg!(target_os = "macos") {

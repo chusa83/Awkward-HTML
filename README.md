@@ -1,10 +1,22 @@
-# Webloom
+# awkward HTML
 
-A small Dreamweaver-style editor for static websites: code view, design view and a property inspector, kept in sync. Written in Rust, runs on macOS, Windows and Linux.
+<img src="branding/png/icon-128.png" width="96" alt="awkward HTML icon">
+
+A small Dreamweaver-style editor for static websites: code view, design view, property inspector and CSS Designer, kept in sync. Written in Rust, runs on macOS, Windows and Linux.
+
+## Download
+
+Get the latest build from the [Releases](../../releases) page:
+
+- Windows: `AwkwardHTML.exe`
+- macOS (Apple Silicon): `AwkwardHTML_macos.zip`
+- Linux (x64): `AwkwardHTML_linux_x64.tar.gz`
+
+You need a Chromium-based browser installed (Chrome, Chromium, Edge or Brave); Windows already ships with Edge. The apps are not code signed, so Windows SmartScreen and macOS Gatekeeper will warn on first launch. The release notes explain how to get past that.
 
 ## How it works
 
-- `webloom` is a single binary. It serves your site folder and the editor UI on `127.0.0.1` and opens the editor in a Chromium-based browser (Chrome, Chromium, Edge or Brave) in app mode, so it looks like a desktop window. The design view is therefore rendered by Chromium on every OS.
+- `awkward-html` is a single binary. It serves your site folder and the editor UI on `127.0.0.1` and opens the editor in a Chromium-based browser (Chrome, Chromium, Edge or Brave) in app mode, so it looks like a desktop window. The design view is therefore rendered by Chromium on every OS.
 - The **source code is always the source of truth**. The design view is your page served with a `data-dw="<n>"` attribute on every element (added on the fly, never written to disk), where `n` is the element's index in the parsed source. That index is how a click in the design view maps back to an exact range in the code.
 - Changes made from the design view or the inspector are small text edits to the source (replace a start tag, replace text, insert, delete). The rest of the file is left byte-for-byte as you wrote it: no reformatting.
 
@@ -47,7 +59,7 @@ Options:
 
 - `--port N` to use a fixed port (default: a free one)
 - `--no-browser` to only print the editor URL
-- `WEBLOOM_BROWSER=/path/to/browser` to override browser detection
+- `AWKWARD_HTML_BROWSER=/path/to/browser` to override browser detection
 
 Try it with the bundled example:
 
@@ -55,13 +67,38 @@ Try it with the bundled example:
 cargo run --release -- example
 ```
 
-Prebuilt binaries for the three OSes are produced by GitHub Actions (`.github/workflows/build.yml`) on every push to `main`, and attached to a release when you push a `v*` tag.
+`awkward-html --version` prints the version.
+
+## Versions and releases
+
+Versions are `MAJOR.MINOR.PATCH`: MAJOR marks a completed version, MINOR improvements, PATCH corrections.
+
+To publish a release:
+
+1. Set `version` in `Cargo.toml` (for example `0.1.4`) and push to `main`.
+2. On GitHub, open **Actions → Build apps → Run workflow** and enter the same version with a `v` (`v0.1.4`).
+
+The workflow (`.github/workflows/release.yml`) refuses to run if the version doesn't match `Cargo.toml` or the tag already exists. It runs the tests, builds the Windows, macOS and Linux apps and publishes them as a GitHub release. `.github/workflows/ci.yml` runs the tests on every push.
+
+## Icon
+
+The icon sources are in `branding/`: `icon.svg` (48 px and up), `icon-small.svg` (32 px) and `icon-16.svg` (16 px). After changing them, regenerate the PNGs, `icon.ico` and `icon.icns`, and the copies in `ui/`:
+
+```bash
+node branding/render-icons.js
+```
+
+```bash
+python3 branding/make-icon-files.py
+```
+
+The first needs Playwright with Chromium, the second Pillow.
 
 ## Limitations (current)
 
 - No WYSIWYG typing across elements: in-place editing only works on elements whose content is plain text. Rich content is edited in the code view.
 - The CSS Designer doesn't compute specificity or show which declaration wins; rules are listed in source order. Rules with nested CSS, `@font-face` and `@keyframes` are not editable from the panel (use the code view). External (CDN) stylesheets are listed but read-only.
-- If a Chromium browser is already running with Webloom's profile (a second Webloom instance), the program can't tell when its window closes and keeps running until stopped.
+- If a Chromium browser is already running with awkward HTML's profile (a second awkward HTML instance), the program can't tell when its window closes and keeps running until stopped.
 - No native menus or native file dialogs: the UI runs in the browser window.
 - One open file at a time (unsaved changes to other files are kept in memory and marked with ●).
 - Server-side includes, PHP and Dreamweaver templates (`.dwt`) are not processed; pages are served as they are on disk.
@@ -77,5 +114,7 @@ src/html.rs     HTML scanner, element ranges, source edits (with tests)
 src/css.rs      CSS scanner and rule edits for the CSS Designer (with tests)
 ui/             editor UI (plain HTML/CSS/JS, embedded in the binary)
 ui/vendor/      CodeMirror 5 (MIT)
+branding/       icon sources and generated icon files
+build.rs        embeds the icon in the Windows executable
 example/        a tiny site to try the editor on
 ```
